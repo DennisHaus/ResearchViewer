@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AR Viewer</title>
+
+  <script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
+
+  <style>
+    html, body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: transparent;
+      font-family: Arial, sans-serif;
+    }
+
+    a-scene {
+      width: 100vw;
+      height: 100vh;
+    }
+
+    #startOverlay {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(0,0,0,0.92);
+      color: white;
+      z-index: 9999;
+      text-align: center;
+      padding: 2rem;
+    }
+
+    #startButton {
+      margin-top: 1rem;
+      padding: 1rem 1.5rem;
+      border: none;
+      border-radius: 8px;
+      background: white;
+      color: black;
+      font-size: 1rem;
+      font-weight: bold;
+    }
+
+    #overlayPanel {
+      position: fixed;
+      top: 20%;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 340px;
+      z-index: 9998;
+      display: none;
+      touch-action: none;
+      user-select: none;
+    }
+
+    #overlayHeader {
+      background: rgba(0,0,0,0.82);
+      color: white;
+      padding: 0.5rem 0.6rem;
+      border-radius: 12px 12px 0 0;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 0.4rem;
+      cursor: move;
+    }
+
+    #overlayButtons {
+      display: flex;
+      gap: 0.35rem;
+    }
+
+    .iconBtn {
+      width: 28px;
+      height: 28px;
+      border: none;
+      border-radius: 999px;
+      background: white;
+      color: black;
+      font-weight: bold;
+      cursor: pointer;
+      padding: 0;
+      line-height: 28px;
+    }
+
+    #overlayContent {
+      background: black;
+      border-radius: 0 0 12px 12px;
+      overflow: hidden;
+    }
+
+    #overlayVideo {
+      width: 100%;
+      height: auto;
+      display: none;
+      object-fit: contain;
+    }
+
+    #overlayModelHost {
+      width: 100%;
+      height: 320px;
+      display: none;
+      background: #111;
+    }
+
+    #topControls {
+      position: fixed;
+      top: 12px;
+      right: 12px;
+      z-index: 10000;
+      display: none;
+      gap: 8px;
+    }
+
+    #topControls button {
+      width: 42px;
+      height: 42px;
+      border: none;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.95);
+      color: black;
+      font-weight: bold;
+      font-size: 16px;
+      cursor: pointer;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    }
+
+    #arLabel {
+      position: fixed;
+      top: 12px;
+      left: 12px;
+      z-index: 10000;
+      display: none;
+      color: white;
+      background: rgba(0,0,0,0.5);
+      padding: 6px 10px;
+      border-radius: 999px;
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+
+  <div id="startOverlay">
+    <div>
+      <h1>AR Viewer</h1>
+      <p>Tap to start camera and scan the target image.</p>
+      <button id="startButton">Start AR</button>
+    </div>
+  </div>
+
+  <div id="overlayPanel">
+    <div id="overlayHeader">
+      <span id="overlayTitle">Content</span>
+      <div id="overlayButtons">
+        <button id="fsBtn" class="iconBtn" title="Fullscreen">⛶</button>
+        <button id="closeBtn" class="iconBtn" title="Close">×</button>
+      </div>
+    </div>
+    <div id="overlayContent">
+      <video id="overlayVideo" muted loop playsinline webkit-playsinline preload="auto"></video>
+      <div id="overlayModelHost"></div>
+    </div>
+  </div>
+
+  <div id="topControls">
+    <button id="backBtn" title="Back">⛶</button>
+  </div>
+
+  <div id="arLabel">Scanning</div>
+
+  <a-scene
+    id="scene"
+    mindar-image="imageTargetSrc: ./targets.mind; autoStart: false;"
+    vr-mode-ui="enabled: false"
+    device-orientation-permission-ui="enabled: false"
+    embedded
+    renderer="colorManagement: true, physicallyCorrectLights; alpha: true"
+  >
+    <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
+
+    <a-entity id="target0" mindar-image-target="targetIndex: 0"></a-entity>
+    <a-entity id="target1" mindar-image-target="targetIndex: 1"></a-entity>
+    <a-entity id="target2" mindar-image-target="targetIndex: 2"></a-entity>
+  </a-scene>
+
+  <script>
+    const CONTENT = {
+      0: {
+        title: "Insitu Modelling",
+        type: "video",
+        src: "./media/250520_Insitu_Modelling2.mp4"
+      },
+      1: {
+        title: "Hardhof Test",
+        type: "video",
+        src: "./media/Hardhof-Test_1.mp4"
+      },
+      2: {
+        title: "Blatten",
+        type: "model",
+        src: "./models/blatten.glb"
+      }
+    };
+
+    const startOverlay = document.getElementById("startOverlay");
+    const startButton = document.getElementById("startButton");
+    const overlayPanel = document.getElementById("overlayPanel");
+    const overlayTitle = document.getElementById("overlayTitle");
+    const overlayVideo = document.getElementById("overlayVideo");
+    const overlayModelHost = document.getElementById("overlayModelHost");
+    const closeBtn = document.getElementById("closeBtn");
+    const fsBtn = document.getElementById("fsBtn");
+    const topControls = document.getElementById("topControls");
+    const backBtn = document.getElementById("backBtn");
+    const arLabel = document.getElementById("arLabel");
+    const scene = document.getElementById("scene");
+    const header = document.getElementById("overlayHeader");
+
+    const target0 = document.getElementById("target0");
+    const target1 = document.getElementById("target1");
+    const target2 = document.getElementById("target2");
+
+    let mode = "window"; // window | fullscreen
+    let dragging = false;
+    let offsetX = 0;
+    let offsetY = 0;
+    let activeIndex = null;
+
+    function clearOverlayContent() {
+      overlayVideo.style.display = "none";
+      overlayVideo.pause();
+      overlayVideo.currentTime = 0;
+      overlayVideo.src = "";
+
+      overlayModelHost.style.display = "none";
+      overlayModelHost.innerHTML = "";
+    }
+
+    function showContent(index) {
+      const item = CONTENT[index];
+      if (!item) return;
+
+      activeIndex = index;
+      overlayTitle.textContent = item.title || "Content";
+      clearOverlayContent();
+      overlayPanel.style.display = "block";
+
+      if (item.type === "video") {
+        overlayVideo.style.display = "block";
+        overlayVideo.src = item.src;
+        overlayVideo.play().catch(() => {});
+      }
+
+      if (item.type === "model") {
+        overlayModelHost.style.display = "block";
+        overlayModelHost.innerHTML = `
+          <a-scene embedded background="color: #111">
+            <a-assets>
+              <a-asset-item id="modelAsset" src="${item.src}"></a-asset-item>
+            </a-assets>
+            <a-entity
+              gltf-model="#modelAsset"
+              position="0 -0.5 -2"
+              scale="0 0 0"
+              rotation="0 180 0">
+            </a-entity>
+            <a-camera position="0 0 0"></a-camera>
+          </a-scene>
+        `;
+      }
+    }
+
+    function hideContent() {
+      overlayPanel.style.display = "none";
+      clearOverlayContent();
+      activeIndex = null;
+    }
+
+    function setWindowMode() {
+      mode = "window";
+      topControls.style.display = "none";
+      arLabel.style.display = "block";
+      overlayPanel.style.display = "block";
+      overlayPanel.style.width = "340px";
+      overlayPanel.style.height = "auto";
+      overlayPanel.style.top = "20%";
+      overlayPanel.style.left = "50%";
+      overlayPanel.style.transform = "translateX(-50%)";
+      overlayPanel.style.borderRadius = "12px";
+      overlayVideo.style.width = "100%";
+      overlayVideo.style.height = "auto";
+      overlayVideo.style.objectFit = "contain";
+      overlayModelHost.style.width = "100%";
+      overlayModelHost.style.height = "320px";
+    }
+
+    function toggleFullscreen() {
+      if (mode === "fullscreen") {
+        setWindowMode();
+        return;
+      }
+
+      mode = "fullscreen";
+      topControls.style.display = "none";
+      arLabel.style.display = "none";
+      overlayPanel.style.display = "block";
+      overlayPanel.style.width = "100vw";
+      overlayPanel.style.height = "100vh";
+      overlayPanel.style.top = "0";
+      overlayPanel.style.left = "0";
+      overlayPanel.style.transform = "none";
+      overlayPanel.style.borderRadius = "0";
+      overlayVideo.style.width = "100%";
+      overlayVideo.style.height = "calc(100vh - 44px)";
+      overlayVideo.style.objectFit = "contain";
+      overlayModelHost.style.width = "100%";
+      overlayModelHost.style.height = "calc(100vh - 44px)";
+    }
+
+    startButton.addEventListener("click", async () => {
+      try {
+        const system = scene.systems["mindar-image-system"];
+        if (!system) throw new Error("MindAR system not ready");
+        await system.start();
+        startOverlay.style.display = "none";
+      } catch (err) {
+        console.error("Could not start AR:", err);
+        alert("Could not start AR.");
+      }
+    });
+
+    target0.addEventListener("targetFound", () => {
+      showContent(0);
+    });
+
+    target1.addEventListener("targetFound", () => {
+      showContent(1);
+    });
+
+    target2.addEventListener("targetFound", () => {
+      showContent(2);
+    });
+
+    target0.addEventListener("targetLost", () => {});
+    target1.addEventListener("targetLost", () => {});
+    target2.addEventListener("targetLost", () => {});
+
+    closeBtn.addEventListener("click", () => {
+      hideContent();
+    });
+
+    fsBtn.addEventListener("click", toggleFullscreen);
+    backBtn.addEventListener("click", toggleFullscreen);
+
+    header.addEventListener("pointerdown", (e) => {
+      if (mode !== "window") return;
+      dragging = true;
+      const rect = overlayPanel.getBoundingClientRect();
+      offsetX = e.clientX - rect.left;
+      offsetY = e.clientY - rect.top;
+      overlayPanel.style.transform = "none";
+    });
+
+    window.addEventListener("pointermove", (e) => {
+      if (!dragging) return;
+      overlayPanel.style.left = `${e.clientX - offsetX}px`;
+      overlayPanel.style.top = `${e.clientY - offsetY}px`;
+    });
+
+    window.addEventListener("pointerup", () => {
+      dragging = false;
+    });
+  </script>
+</body>
+</html>
